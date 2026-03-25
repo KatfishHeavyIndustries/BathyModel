@@ -74,7 +74,7 @@ algorithms are original implementations written for this project.
 
 ### Executable (recommended)
 
-Download `BathyModel.exe` and `README.md` from the GitHub releases page. Place them
+Download `BathyModel.V1.0.rar` and `README.md` from the GitHub releases page. Place them
 in a folder of your choice and double-click the exe — no Python or dependencies required.
 
 XYZ Files and STL Files folders are created automatically alongside the exe on first run.
