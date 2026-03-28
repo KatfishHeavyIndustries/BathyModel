@@ -1,233 +1,518 @@
-# BathyModel v1.0
+# BathyModel v1.1
 
-**© 2026 Katfish Heavy Industries**
-Design: Katfish
+**© Katfish Heavy Industries**
 
-A tool for converting bathymetric survey data (XYZ point clouds) into 3D-printable
-STL models, with an optional recessed text label on the base.
+Facility-scale bathymetric survey to 3D-printable STL converter.
 
-Developed for generating physical harbor and waterway models from survey data.
-
----
-
-## Scope and intended use
-
-BathyModel is optimised for **facility-level surveys** — individual piers, berths,
-slips, and similar bounded areas typically covered by surveys up to a few thousand
-points at 3–15ft grid spacing.
-
-It is **not intended for portfolio or city-scale datasets**. Large area surveys
-(full waterfronts, harbor-wide coverage, 1m UTM grids spanning hundreds of acres)
-will produce point counts and triangle counts that exceed what the pipeline handles
-practically. For those datasets, consider splitting into facility-level tiles before
-processing.
-
-A practical upper limit is roughly 10,000–50,000 input points. Beyond that,
-Delaunay triangulation time becomes the bottleneck and runtime grows significantly.
+Optimised for individual piers, berths, slips, and harbour approaches.
+Not intended for portfolio or city-scale datasets.
 
 ---
 
-## License
+## Contents
 
-BathyModel is released under the **GNU General Public License v3.0 (GPL-3.0)**.
-
-You are free to use, modify, and distribute this software under the following conditions:
-
-- Any distributed version of this software, or software that incorporates it, must also be released under GPL-3.0
-- The source code must be made available to anyone who receives the software
-- The original copyright and license notice must be preserved
-
-This software is provided without warranty of any kind.
-
-Full license text: https://www.gnu.org/licenses/gpl-3.0.en.html
-
-A `LICENSE` file containing the full GPL-3.0 text is included in the GitHub repository.
+- [Overview](#overview)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Input File Formats](#input-file-formats)
+- [Using the GUI](#using-the-gui)
+- [Parameters](#parameters)
+- [Multi-File Merge](#multi-file-merge)
+- [Log Output Reference](#log-output-reference)
+- [Troubleshooting](#troubleshooting)
+- [File Naming Convention](#file-naming-convention)
+- [Building from Source](#building-from-source)
+- [License](#license)
+- [Attributions](#attributions)
 
 ---
 
-## Attribution
+## Overview
 
-BathyModel is built on the following open-source libraries:
+BathyModel reads XYZ point-cloud sounding data, triangulates the seafloor
+surface using a Delaunay mesh, extrudes a solid base, optionally recesses a
+text label into the underside, and writes a binary STL ready for slicing and
+printing.
 
-- **NumPy** — fundamental array and numerical operations
-  https://numpy.org — BSD License
+**What it produces:**
 
-- **SciPy** — Delaunay triangulation (via Qhull) and KD-tree nearest-neighbor search
-  https://scipy.org — BSD License
+```
+┌─────────────────────────────────┐  ← seafloor surface (top)
+│  shallows ↑     deeps ↓        │
+│                                 │
+├─────────────────────────────────┤  ← base (flat underside)
+│       PIER 45  · SF BAY        │  ← recessed label
+└─────────────────────────────────┘
+```
 
-- **Pillow (PIL Fork)** — font rendering for the recessed label
-  https://python-pillow.org — HPND License
-
-- **Python** — language runtime
-  https://python.org — PSF License
-
-- **DejaVu Sans Bold** — default label font (bundled with most Linux/Windows systems)
-  https://dejavu-fonts.github.io — DejaVu Fonts License
-
-The Delaunay triangulation and binary STL format handling follow well-established
-computational geometry methods. The grid-based point-in-polygon and boundary-walking
-algorithms are original implementations written for this project.
+Deeper areas print lower; shallower areas print higher. The 3× default
+vertical exaggeration makes relief visible at print scale.
 
 ---
 
 ## Installation
 
-### Executable (recommended)
+### Distributed executable (recommended)
 
-Download `BathyModel.V1.0.rar` and `README.md` from the GitHub releases page. Place them
-in a folder of your choice and double-click the exe — no Python or dependencies required.
+1. Copy `BathyModelV1.1.rar` within a folder of your choice, e.g. `F:\BathyModel\`
+2. Uncompress the file, and run the .exe
+3. Example Files are included from various sources in the \XYZ Files Folder.
 
-XYZ Files and STL Files folders are created automatically alongside the exe on first run.
+No Python installation required.
 
-### From source
+### Running from source
 
-Requires Python 3.8 or later.
+**Requirements:** Python 3.9+
 
 ```
-pip install numpy scipy pillow
+pip install numpy scipy pillow pypdf h5py
+```
+
+**Run:**
+
+```
 python BathyModel.py
 ```
 
 ---
 
-## Input data format
+## Quick Start
 
-BathyModel accepts XYZ files with no header row. Delimiters are auto-detected — tab,
-comma, and space/whitespace are all supported.
+1. Launch `BathyModel.exe`
+2. Click **Browse…** next to *.XYZ File(s) Location* and select your survey file
+   — `.xyz`, `.txt`, `.pdf`, and `.bag` are all accepted
+3. The Label and STL output path auto-fill from the filename
+4. Adjust parameters if needed (defaults work well for 15 ft grid files)
+5. Click **Generate STL ▶**
+6. When complete, click **Open Output File** to preview in your STL viewer
+
+---
+
+## Input File Formats
+
+BathyModel accepts four file types. All format detection is automatic — just
+browse to the file and BathyModel handles the rest.
+
+### Standard XYZ  (`.xyz`)
+
+Tab- or space-delimited, three columns, no header:
 
 ```
-X_coordinate    Y_coordinate    depth
-6011026.98      2123259.99      33.4
-6010441.97      2123394.97      23.5
-...
+X           Y           Z
+1234567.89  456789.01   -12.5
+1234568.12  456789.45   -13.1
 ```
 
-- Coordinates may be in any projected system (State Plane, UTM, etc.)
-- Depth values in feet, positive values = depth below surface
-- Negative values (elevation convention) are also handled automatically
-- **Optimised for 15ft shoal bias grid spacing** — the recommended input format
-- 3ft grid files are supported but practical only for small individual berths or slips
-- Recommended point count: 2,000–50,000 points for comfortable runtimes
+Coordinates must be in a projected system (State Plane, UTM, etc.) where
+X and Y are in feet or metres. Decimal-degree lat/lon will produce a
+distorted or unusably small model — use NOAA format for those files.
+
+Z values may be negative (depth below datum) or positive (depth below surface).
+BathyModel detects the sign convention automatically.
+
+### NOAA GeoImage TXT  (`.txt`)
+
+Comma-delimited, three columns, no header:
+
+```
+latitude,longitude,depth
+37.864517,-122.399565,14.78
+37.854329,-122.399506,20.12
+```
+
+Depths are in metres, positive downward. BathyModel automatically detects the
+NOAA format from the coordinate ranges, swaps columns to the expected order,
+and projects decimal degrees to metres using an equirectangular approximation
+centred on the survey (accurate to within 0.1% for facility-scale areas).
+
+The log confirms detection and conversion:
+
+```
+⚑  NOAA GeoImage format detected (lat, lon, depth — comma-delimited)
+✓  Converted: columns remapped (lon, lat, depth) and projected to metres
+```
+
+The Nominal Grid Spacing field is cleared automatically when a `.txt` file is
+selected, since the spacing is in metres and auto-estimation is more reliable
+than the foot-based default.
+
+### NOAA GeoImage PDF  (`.pdf`)
+
+NOAA distributes hydrographic surveys as GeoImage PDFs with the sounding
+data embedded as an attachment (`H#####_Depths.txt`). BathyModel extracts
+the attachment automatically — you do not need to open the PDF or save the
+file separately.
+
+```
+⚑  PDF detected — extracting embedded sounding file ...
+✓  Extracted: H13541_Depths.txt
+✓  Converted: columns remapped (lon, lat, depth) and projected to metres
+```
+
+**Note:** PDF support requires the `pypdf` library, included in the distributed
+exe. If running from source: `pip install pypdf`
+
+**Note:** The sounding data embedded in a GeoImage PDF is a coarse reduced
+dataset (typically 200m+ point spacing). For full-resolution data, download
+the BAG file from NOAA's National Centers for Environmental Information:
+https://www.ncei.noaa.gov/maps/bathymetry/
+
+### BAG — Bathymetric Attributed Grid  (`.bag`)
+
+NOAA's standard format for gridded multibeam survey products. BAG files
+contain a regular elevation grid at the survey's native resolution and are
+significantly higher quality than the sounding data embedded in GeoImage PDFs.
+
+BathyModel reads the supergrid elevation layer, extracts the bounding box
+from the embedded ISO 19115 metadata, and projects geographic coordinates
+to metres where needed.
+
+```
+⚑  BAG format detected — Variable Resolution (VR) — supergrid only
+    Full VR refinement support coming in v1.2
+✓  Supergrid: 512 × 512 cells   approx. resolution: 29 m
+   Valid soundings: 64,525
+```
+
+**Variable Resolution (VR) BAGs** — modern NOAA surveys use the VR variant
+which stores data at multiple resolutions. BathyModel currently reads the
+coarse supergrid layer only. Full native-resolution VR support is planned
+for v1.2 and will dramatically improve model detail.
+
+**Where to get BAG files** — search for your survey number at:
+https://www.ncei.noaa.gov/maps/bathymetry/
+
+**Note:** BAG support requires the `h5py` library, included in the distributed
+exe. If running from source: `pip install h5py`
+
+The Nominal Grid Spacing field is cleared automatically when a `.bag` file
+is selected.
 
 ---
 
 ## Using the GUI
 
-1. Double-click `BathyModel.exe`
-2. Click **Browse** next to XYZ file(s) and select your survey file
-   - The file browser opens to `XYZ Files\` by default
-   - The output path auto-fills to `STL Files\<filename>.stl`
-   - Multiple files can be selected for batch processing
-3. Enter a **Label** to be recessed into the base (e.g. `Pier 27 SF`)
-   - Leave blank for no label
-   - Auto-populated from filename if a pier name is detected
-4. Enter the **Nominal Grid Spacing** in feet (e.g. `15`)
-   - Optimised for 15x15 ft Shoal Bias files
-   - Leave blank to auto-estimate from point spacing
-5. Adjust **Parameters** if needed (see Parameters section below)
-6. Click **Generate STL ▶**
-7. Watch the log panel for progress — large files may take several minutes
-8. The finished STL appears in `STL Files\`
-9. Click **Open Output File** to open the STL in your default viewer
+### Input section
 
----
+**.XYZ File(s) Location** — browse to one or more survey files. Accepts
+`.xyz`, `.txt`, `.pdf`, and `.bag`. Multi-select is supported for batch or
+merge processing.
 
-## Using the command line
+**Nominal Grid Spacing (ft)** — the survey's point spacing. Leave at 15 for
+standard 15×15 ft Shoal Bias files. Leave blank to auto-estimate from the
+data. Cleared automatically for NOAA `.txt`, `.pdf`, and `.bag` files since
+those work in metres. Used to set the maximum triangle edge length filter;
+too small causes holes at survey boundaries, too large allows phantom
+triangles spanning gaps.
 
-```
-python BathyModel.py input.xyz "Label Text" output.stl [nominal_spacing_ft]
-```
+**Multi-file mode** — appears automatically when more than one file is
+selected. See [Multi-File Merge](#multi-file-merge) below.
 
-Launching with no arguments opens the GUI:
+### Parameters section
 
-```
-python BathyModel.py
-```
+| Parameter | Default | Description |
+|---|---|---|
+| Z-Height Exaggeration | 3.0 | Vertical scale multiplier. Increase for very flat surveys. |
+| Base Padding Thickness (mm) | 5.0 | Thickness of the flat base below the deepest point. |
 
-Examples:
+### Label section
 
-```
-python BathyModel.py "XYZ Files\Pier27.xyz" "Pier 27 SF" "STL Files\Pier27.stl" 15
-python BathyModel.py "XYZ Files\Waterfront.xyz" "SF Waterfront" "STL Files\Waterfront.stl" 15
-```
+| Parameter | Default | Description |
+|---|---|---|
+| Label Text | (from filename) | Text recessed into the bottom face. Leave blank for a flat base. |
+| Font Size (pt) | 14 | Rendered using DejaVu Sans Bold. |
+| Text Recess Depth (mm) | 1.5 | Depth of the recessed label into the base. |
 
-The output path argument is optional — if omitted, the file is saved to
-`STL Files\<input_name>.stl` automatically.
+### Output section
+
+**.STL File(s) Output Location** — auto-fills with the survey filename in the
+`STL Files\` folder. In batch mode this field is locked; files are named
+automatically from each input filename.
+
+### Buttons
+
+**Generate STL ▶** — starts processing. The button is disabled during the run.
+Multiple files run sequentially in a background thread; the GUI stays responsive.
+
+**Open Output File** — opens the most recently completed STL in the system's
+default viewer (e.g. Windows 3D Viewer, PrusaSlicer, Bambu Studio). Works
+correctly in single, batch, and merge modes. Enabled after a successful run.
 
 ---
 
 ## Parameters
 
-These are set at the top of `BathyModel.py` and also editable in the GUI:
+### Vertical exaggeration
 
-| Parameter | Default | Description |
-|---|---|---|
-| `BASE_MM` | 5.0 | Thickness of the flat base under the deepest point (mm) |
-| `MAX_DIM_MM` | 200.0 | Maximum footprint dimension — model is scaled to fit (mm) |
-| `Z_EXAG` | 3.0 | Vertical exaggeration — increase for flat/featureless surveys |
-| `EDGE_FACTOR` | 3.0 | Edge-length filter multiplier (controls boundary triangle removal) |
-| `RECESS_MM` | 1.5 | Depth of the recessed label carve-in (mm) |
-| `CELL_MM` | 1.0 | Grid cell size for bottom face — increase for large files (mm) |
-| `FONT_PT` | 14 | Label font size in points |
+The default 3× exaggeration suits most harbour and pier surveys at 200mm print
+size. As a guide:
 
-### Tips for large files
+- Flat anchorage/approach surveys: try 6×–10×
+- Active scour zones (e.g. under ferry ramps): 2×–3×
+- Structural surveys with large relief: 1×–2×
 
-- Increase `CELL_MM` to `2.0` or `3.0` to reduce bottom face processing time
-- Increase `Z_EXAG` to `8.0`–`10.0` for harbor surveys with low vertical relief
-- The Delaunay triangulation step scales with point count and cannot be sped up
-  further — a 1M+ point file will take several minutes regardless
+### Edge factor
+
+Hardcoded at 3.0× nominal spacing. Controls the triangle edge-length filter
+that removes long boundary triangles at the survey perimeter. If the model has
+large flat fins or skirts extending beyond the survey area, reduce `EDGE_FACTOR`
+in the source to 2.0.
+
+### Auto-thinning
+
+If the survey point spacing is finer than the 1mm bottom-face cell grid,
+BathyModel automatically thins the point cloud using a shoal-bias grid filter
+(keeping the shallowest point per cell). This is logged when it occurs:
+
+```
+Auto-thinning: spacing 0.312mm < 1.0mm — thinning to 1.0mm grid (shoal bias)
+12,450 → 3,891 points after thinning
+```
 
 ---
 
-## Output
+## Multi-File Merge
 
-BathyModel produces a binary STL file ready for slicing and 3D printing.
+When two or more files are selected, a **Multi-file mode** toggle appears in
+the Input section with two options:
 
-**Recommended print settings:**
-- No supports required
-- Print with seafloor side up (the label on the base faces down)
-- 0.2mm layer height works well for typical pier-scale models
-- The recessed label reads best with a contrasting filament or paint fill
+**Process as separate files** — the original batch behaviour. Each file is
+processed independently and produces its own STL in `STL Files\`.
 
-**Slicer compatibility:**
-The bottom face grid may produce minor T-junction gaps at the survey boundary.
-These are cosmetic and can be repaired automatically with:
-- PrusaSlicer → **Fix** (on import)
-- Meshmixer → **Make Solid**
-- Netfabb → **Repair**
+**Merge into single model** — all selected files are concatenated into a
+single point cloud and processed as one job, producing one STL. The Label and
+output path fields re-enable so you can set them for the merged result. The
+output filename defaults to `<first_file>_merged.stl`.
+
+### When to use merge
+
+Merge is intended for complementary surveys of the same geographic area —
+for example, a port authority survey of one side of a pier combined with a
+NOAA survey of the channel alongside it. All file formats (`.xyz`, `.txt`,
+`.pdf`, `.bag`) can be mixed in a merge — NOAA formats are projected to metres
+before concatenation.
+
+### Coordinate compatibility check
+
+Before merging, BathyModel checks that all selected files have bounding boxes
+that overlap or abut within a 5,000-unit tolerance. If any file appears to be
+from a different geographic area or coordinate system, a warning dialog appears:
+
+```
+Coordinate compatibility check failed —
+File 2 coordinates appear incompatible — X gap: 42,310, Y gap: 0.
+Files may be in different coordinate systems or areas.
+Proceed anyway?
+```
+
+You can proceed or cancel. Proceeding with incompatible coordinates will
+produce a distorted or empty model.
+
+### Merge log output
+
+```
+Merging 2 files:
+  [1] AEW_20240628_POSF_FishermansWharf_3x3_depth.xyz  (122,292 pts)
+  [2] CDIM_20250219_POSF_Pier45_15x15_ShoalBias.xyz  (2,879 pts)
+  Coordinate check: compatible (X overlap: 1168 ft, Y overlap: 988 ft)
+  Combined: 125,171 points
+
+Loading <2-file merge> ...
+  125,171 points   Z ∈ [0.01, 59.60] ft
+  ...
+```
+
+---
+
+## Log Output Reference
+
+A typical successful run produces output like this:
+
+```
+Loading CDIM_20260204_POSF_Pier35_15x15_Depth_ShoalBias.xyz ...
+  2,879 points   Z ∈ [0.01, 29.30] ft
+  Footprint : 121.0 × 200.0 mm
+  Scale     : 1 mm = 47.2 ft  (1 : 566)
+  Z range   : 5.0 – 8.7 mm  (×3.0 exaggeration)
+Triangulating 2,879 points ...
+  7,241 → 6,903 triangles after filter
+  Finding boundary ...
+  Boundary loops: 2
+Building bottom face ...
+  Label 'Pier 35 · SF Bay' — 128×14 cells at 14pt
+  Placed 1,247/1,251 pixels inside footprint
+  6,280 bottom cells
+Writing STL Files\CDIM_20260204_POSF_Pier35_15x15_Depth_ShoalBias.stl ...
+
+✓  CDIM_20260204_POSF_Pier35_15x15_Depth_ShoalBias.stl  (28,902 triangles)
+```
+
+**Scale line** — reports the real-world distance per mm of model and the
+dimensionless ratio. Unit is `ft` for standard XYZ files and `m` for
+NOAA-projected and BAG data.
+
+**Boundary loops** — the number of closed boundary edges found. A single
+convex survey typically has 1 loop. Pier surveys with structural gaps (e.g.
+a pier cutting through the survey) may have 2 or more.
+
+**Track-line survey detected** — shown when the point spacing analysis finds
+a bimodal edge-length distribution, indicating a multibeam track-line survey.
+BathyModel uses the cross-track spacing for the edge filter in this case:
+
+```
+  Track-line survey detected — using cross-track spacing: 4.21mm
+  (along-track: 0.38mm, cross-track: 4.21mm)
+```
+
+**BAG log example:**
+
+```
+Loading H13541_MB_VR_MLLW_1of1.bag ...
+⚑  BAG format detected — Variable Resolution (VR) — supergrid only
+    Full VR refinement support coming in v1.2
+✓  Supergrid: 512 × 512 cells   approx. resolution: 29 m
+   Valid soundings: 64,525
+  64,525 points   Z ∈ [-56.42, -1.10] m
+  Footprint : 145.0 × 200.0 mm
+  Scale     : 1 mm = 75.4 m  (1 : 75,400)
+  Z range   : 5.0 – 13.2 mm  (×3.0 exaggeration)
+```
 
 ---
 
 ## Troubleshooting
 
-**"Boundary loops: 1" but model looks incomplete**
-The edge filter may be bridging gaps between survey regions. Try reducing
-`EDGE_FACTOR` from 3.0 to 2.0.
+**Holes or missing areas in the model**
+
+The edge-length filter is trimming too aggressively. Try increasing the
+Nominal Grid Spacing field, or leave it blank to let BathyModel auto-estimate.
+If the survey is a track-line file, the auto-detection should handle this, but
+a very irregular track pattern may need manual tuning.
+
+**Large triangular fins extending beyond the survey boundary**
+
+The edge filter is too permissive. Reduce Nominal Grid Spacing, or if running
+from source, reduce `EDGE_FACTOR` from 3.0 to 2.0.
 
 **Very flat model with no visible relief**
-Increase `Z_EXAG`. Harbor surveys often need 8×–15× to show meaningful relief
-at 200mm scale.
 
-**Label is missing or partial**
-The label placement algorithm finds the widest band inside the survey footprint.
-On very irregular shapes the best available band may still be narrow. Try a
-shorter label string.
+Increase Z-Height Exaggeration. Harbour surveys often need 6×–15× to show
+meaningful relief at 200mm scale. BAG supergrid data at 29m resolution will
+also appear smoother than a high-resolution pier survey — this is a data
+resolution limitation, not a BathyModel issue.
+
+**Label is missing or only partially visible**
+
+The label placement algorithm finds the widest horizontal band inside the
+survey footprint. On very irregular shapes the best available band may be
+narrow. Try a shorter label string or reduce Font Size.
 
 **Application appears to hang at "Triangulating..."**
-This is normal for large files. A 1M+ point survey will take several minutes
-at this step. The process is alive — check CPU usage to confirm.
+
+This is normal for large files. A survey with 100,000+ points will take
+several minutes at this step. The application is alive — check CPU usage to
+confirm. The GUI remains responsive throughout.
+
+**Open Output File does nothing after a batch run**
+
+Fixed in v1.1. The button now tracks the last successfully written file
+across all modes (single, batch, and merge).
+
+**NOAA PDF: "No .txt attachment found"**
+
+The PDF may be a chart rather than a GeoImage survey PDF. GeoImage PDFs
+contain an embedded `H#####_Depths.txt` file. Verify by opening the PDF in
+Adobe Acrobat and checking the Attachments panel (View → Navigation Panes →
+Attachments).
+
+**BAG: "Could not parse bounding box from BAG metadata XML"**
+
+The metadata XML in the BAG file uses an unusual structure. Please report the
+survey number so the parser can be updated.
+
+**BAG: h5py ImportError**
+
+Run `pip install h5py` then rebuild the exe with PyInstaller.
+
+**Coordinate compatibility warning on merge**
+
+The selected files may be from different areas or in different coordinate
+systems. Verify that all files cover the same geographic region. NOAA `.txt`,
+`.pdf`, and `.bag` files are projected to metres before the compatibility
+check, so they can be safely merged with other metre-based files.
 
 ---
 
-## File naming convention
+## File Naming Convention
 
-Survey files from NOAA/port authorities typically encode useful metadata:
+Survey files from NOAA and port authorities typically encode useful metadata:
 
 ```
 CDIM_20260204_POSF_Pier35_15x15_Depth_ShoalBias.xyz
       ↑ date   ↑ project  ↑ pier  ↑ grid   ↑ depth type
 ```
 
-BathyModel uses the filename stem as the default output name, so keeping
-descriptive filenames in `XYZ Files\` will produce descriptive STL names
-in `STL Files\` automatically.
+BathyModel uses the filename stem as the default label and output name, so
+keeping descriptive filenames in `XYZ Files\` will produce descriptive STL
+names in `STL Files\` automatically.
+
+---
+
+## Building from Source
+
+**Dependencies:**
+
+```
+pip install numpy scipy pillow pypdf h5py
+```
+
+**PyInstaller (single-file Windows exe):**
+
+Run from your `Scripts\` folder in Command Prompt:
+
+```
+pyinstaller --onefile --windowed --icon=BathyModel.ico --name=BathyModel BathyModel.py
+```
+
+The exe will be at `dist\BathyModel.exe`. Copy it to your release folder
+alongside the README.
+
+---
+
+## License
+
+BathyModel — Copyright (C) 2026 Katfish Heavy Industries
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, version 3.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+https://www.gnu.org/licenses/gpl-3.0.en.html
+
+---
+
+## Attributions
+
+BathyModel is built on the following open-source libraries:
+
+**NumPy** — Harris et al., *Nature* 585, 357–362 (2020)
+BSD 3-Clause License — https://numpy.org
+
+**SciPy** — Virtanen et al., *Nature Methods* 17, 261–272 (2020)
+BSD 3-Clause License — https://scipy.org
+
+**Pillow** — Jeff Widman et al.
+HPND License — https://python-pillow.org
+
+**pypdf** — Mathieu Fenniak et al.
+BSD 3-Clause License — https://pypdf.readthedocs.io
+
+**h5py** — Andrew Collette et al.
+BSD 3-Clause License — https://www.h5py.org
+
+**DejaVu Fonts** — Bitstream Vera Fonts / Arev Fonts
+DejaVu Fonts License — https://dejavu-fonts.github.io
