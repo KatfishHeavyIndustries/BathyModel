@@ -1,0 +1,25 @@
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+env/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# BathyModel working folders
+XYZ Files/
+STL Files/
+
+# Logs
+BathyModel_history.log
